@@ -240,6 +240,15 @@ COMPANY INTERVIEW STYLE:
 
 CANDIDATE BACKGROUND:
 {background}
+CANDIDATE RESUME:
+{st.session_state.get("resume_text", "") or "No resume uploaded."}
+
+RESUME INSTRUCTIONS:
+- Analyze the candidate's actual skills, projects and experience.
+- Ask personalized questions based on the uploaded resume.
+- Ask about specific projects, technologies and responsibilities.
+- Never invent skills or experience.
+- Ask one question at a time.
 
 INTERVIEW RULES
 
@@ -469,6 +478,43 @@ with st.sidebar:
             "I have worked with Python, SQL, web development "
             "and a Smart Traffic Management project."
         ),
+        
+    # ---------- Resume Upload ----------
+
+    st.markdown("### 📄 Upload Your Resume")
+
+    uploaded_resume = st.file_uploader(
+        "Upload Resume (PDF)",
+        type=["pdf"],
+        disabled=locked,
+        help="Upload your PDF resume for personalized interview questions."
+    )
+
+    resume_text = ""
+
+    if uploaded_resume is not None:
+        try:
+            pdf_reader = PdfReader(uploaded_resume)
+
+            resume_text = "\n".join(
+                page.extract_text() or ""
+                for page in pdf_reader.pages
+            )
+
+            if resume_text.strip():
+                st.success("Resume uploaded successfully!")
+            else:
+                st.warning("No readable text found in this PDF.")
+
+        except Exception as error:
+            st.error(f"Resume reading failed: {error}")
+
+    if "resume_text" not in st.session_state:
+        st.session_state.resume_text = ""
+
+    if not locked:
+        st.session_state.resume_text = resume_text
+
         disabled=locked
     )
 
