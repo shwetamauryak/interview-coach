@@ -211,19 +211,44 @@ def transcribe_audio(audio_file):
         return None
 
 
+# ---------- Resume PDF reader ----------
+def read_resume(uploaded_file):
+    try:
+        pdf_reader = PdfReader(uploaded_file)
+
+        text = "\n".join(
+            page.extract_text() or ""
+            for page in pdf_reader.pages
+        )
+
+        return text.strip()
+
+    except Exception as error:
+        st.error(f"Resume reading failed: {error}")
+        return ""
+
+
+# ---------- Interview system prompt ----------
 def build_system_prompt(
     company,
     role,
     level,
     round_type,
     background,
-    total_q
+    total_q,
+    resume_text=""
 ):
     style = COMPANY_STYLES[company]
 
     background = (
         background.strip()
         or "(Candidate has not shared any background.)"
+    )
+
+    resume_context = (
+        resume_text[:12000]
+        if resume_text.strip()
+        else "No resume uploaded."
     )
 
     return f"""
@@ -240,15 +265,20 @@ COMPANY INTERVIEW STYLE:
 
 CANDIDATE BACKGROUND:
 {background}
-CANDIDATE RESUME:
-{st.session_state.get("resume_text", "") or "No resume uploaded."}
 
-RESUME INSTRUCTIONS:
-- Analyze the candidate's actual skills, projects and experience.
-- Ask personalized questions based on the uploaded resume.
-- Ask about specific projects, technologies and responsibilities.
-- Never invent skills or experience.
-- Ask one question at a time.
+CANDIDATE RESUME:
+{resume_context}
+
+RESUME-BASED INTERVIEW INSTRUCTIONS:
+
+1. Carefully analyze the candidate's uploaded resume.
+2. Identify actual technical skills, projects, internships and experience.
+3. Ask personalized questions based on the resume.
+4. Ask about specific projects, technologies and responsibilities.
+5. Ask the candidate to explain their actual contribution to projects.
+6. Ask practical questions related to the technologies listed in the resume.
+7. Do not assume that the candidate has skills or experience not mentioned.
+8. If no resume is uploaded, use the candidate background instead.
 
 INTERVIEW RULES
 
@@ -270,6 +300,7 @@ INTERVIEW RULES
 """
 
 
+# ---------- Transcript ----------
 def build_transcript(messages):
     lines = []
 
@@ -290,6 +321,7 @@ def build_transcript(messages):
     return "\n".join(lines)
 
 
+# ---------- JSON parser ----------
 def parse_json(text):
     text = text.strip()
 
@@ -305,6 +337,7 @@ def parse_json(text):
     return json.loads(text[start:end + 1])
 
 
+# ---------- AI scorecard ----------
 def make_scorecard(messages, role, level, company):
     transcript = build_transcript(messages)
 
@@ -385,6 +418,7 @@ defaults = {
     "system_prompt": "",
     "meta": {},
     "voice_key": 0,
+    "resume_text": "",
 }
 
 for key, value in defaults.items():
@@ -478,45 +512,41 @@ with st.sidebar:
             "I have worked with Python, SQL, web development "
             "and a Smart Traffic Management project."
         ),
-        
-    # ---------- Resume Upload ----------
+        disabled=locked
+    )
 
+    st.divider()
+
+    # ---------- Resume Upload ----------
     st.markdown("### 📄 Upload Your Resume")
 
     uploaded_resume = st.file_uploader(
         "Upload Resume (PDF)",
         type=["pdf"],
         disabled=locked,
+        key="resume_uploader",
         help="Upload your PDF resume for personalized interview questions."
     )
 
-    resume_text = ""
+    if uploaded_resume is not None and not locked:
+        new_resume_text = read_resume(uploaded_resume)
 
-    if uploaded_resume is not None:
-        try:
-            pdf_reader = PdfReader(uploaded_resume)
-
-            resume_text = "\n".join(
-                page.extract_text() or ""
-                for page in pdf_reader.pages
+        if new_resume_text:
+            st.session_state.resume_text = new_resume_text
+            st.success("Resume uploaded and read successfully!")
+            st.caption(
+                f"Extracted approximately {len(new_resume_text)} characters."
+            )
+        else:
+            st.warning(
+                "No readable text found. Please upload a text-based PDF."
             )
 
-            if resume_text.strip():
-                st.success("Resume uploaded successfully!")
-            else:
-                st.warning("No readable text found in this PDF.")
+    if st.session_state.resume_text:
+        st.info("Your resume is ready for personalized questions.")
 
-        except Exception as error:
-            st.error(f"Resume reading failed: {error}")
-
-    if "resume_text" not in st.session_state:
-        st.session_state.resume_text = ""
-
-    if not locked:
-        st.session_state.resume_text = resume_text
-
-        disabled=locked
-    )
+        with st.expander("Preview Resume Text"):
+            st.write(st.session_state.resume_text[:2500])
 
     st.caption("All interviews and feedback are generated in English.")
 
@@ -595,8 +625,8 @@ if not st.session_state.started:
 
     st.markdown("### Ready to practice?")
     st.write(
-        "Configure your interview settings in the sidebar "
-        "and start your personalized mock interview."
+        "Configure your interview settings in the sidebar, "
+        "upload your resume, and start your personalized mock interview."
     )
 
     if st.button(
@@ -609,6 +639,8 @@ if not st.session_state.started:
             "company": company,
             "role": role,
             "level": level,
+            "round_type": round_type,
+            "total_q": total_q,
         }
 
         st.session_state.system_prompt = build_system_prompt(
@@ -617,7 +649,8 @@ if not st.session_state.started:
             level,
             round_type,
             background,
-            total_q
+            total_q,
+            st.session_state.resume_text
         )
 
         st.session_state.messages = [
@@ -628,7 +661,7 @@ if not st.session_state.started:
             }
         ]
 
-        with st.spinner("Preparing your interviewer..."):
+        with st.spinner("Preparing your personalized interviewer..."):
             first_message = ask_ai(api_messages())
 
         if first_message:
@@ -652,12 +685,17 @@ candidate_answers = sum(
     if message["role"] == "user"
 )
 
+total_q = st.session_state.meta.get("total_q", 5)
+
 st.markdown("### 💼 Live Interview")
 
 st.caption(
     f"Target role: {st.session_state.meta.get('role', 'Candidate')} "
     f"  •  Company style: {st.session_state.meta.get('company', '')}"
 )
+
+if st.session_state.resume_text:
+    st.caption("📄 Resume-based personalized interview enabled.")
 
 st.progress(
     min(candidate_answers / max(total_q, 1), 1.0),
@@ -716,7 +754,6 @@ if not st.session_state.finished:
     elif voice_send and voice_audio:
 
         with st.spinner("Converting your speech into text..."):
-
             answer = transcribe_audio(voice_audio)
 
         st.session_state.voice_key += 1
@@ -739,7 +776,6 @@ if not st.session_state.finished:
 
             if reply:
                 add_assistant(reply)
-
             else:
                 st.session_state.messages.pop()
 
@@ -782,9 +818,7 @@ else:
             st.rerun()
 
 
-
 # ---------- Advanced Performance Analytics ----------
-
 scorecard = st.session_state.scorecard
 
 if scorecard:
@@ -795,22 +829,33 @@ if scorecard:
     st.caption("Your personalized interview performance dashboard")
 
     # ---------- Overall Performance ----------
+    try:
+        overall = float(scorecard.get("overall_score", 0) or 0)
+    except (ValueError, TypeError):
+        overall = 0
 
-    overall = float(scorecard.get("overall_score", 0) or 0)
     overall = max(0, min(overall, 10))
 
     if overall >= 8:
         performance_level = "Excellent"
-        performance_message = "You are performing strongly. Keep refining your skills."
+        performance_message = (
+            "You are performing strongly. Keep refining your skills."
+        )
     elif overall >= 6:
         performance_level = "Good"
-        performance_message = "Good progress! A few improvements can make you interview-ready."
+        performance_message = (
+            "Good progress! A few improvements can make you interview-ready."
+        )
     elif overall >= 4:
         performance_level = "Average"
-        performance_message = "You have a foundation. Focus on structured and relevant answers."
+        performance_message = (
+            "You have a foundation. Focus on structured and relevant answers."
+        )
     else:
         performance_level = "Needs Improvement"
-        performance_message = "Keep practicing. Focus on fundamentals and clear communication."
+        performance_message = (
+            "Keep practicing. Focus on fundamentals and clear communication."
+        )
 
     st.markdown("## 🏆 Overall Performance")
 
@@ -829,13 +874,11 @@ if scorecard:
         )
 
     st.progress(overall / 10)
-
     st.info(performance_message)
 
     st.divider()
 
     # ---------- Skill Analytics ----------
-
     st.markdown("## 📈 Skill Performance Analysis")
 
     scores = scorecard.get("scores", {})
@@ -865,7 +908,9 @@ if scorecard:
 
     if valid_scores:
 
-        average_score = sum(valid_scores.values()) / len(valid_scores)
+        average_score = (
+            sum(valid_scores.values()) / len(valid_scores)
+        )
 
         strongest_skill = max(valid_scores, key=valid_scores.get)
         weakest_skill = min(valid_scores, key=valid_scores.get)
@@ -910,7 +955,6 @@ if scorecard:
     st.divider()
 
     # ---------- Strengths and Improvements ----------
-
     st.markdown("## 🔍 Performance Insights")
 
     left, right = st.columns(2)
@@ -940,7 +984,6 @@ if scorecard:
     st.divider()
 
     # ---------- Question Analysis ----------
-
     st.markdown("## 📝 Question-by-Question Analysis")
 
     questions = scorecard.get("per_question", [])
@@ -963,7 +1006,6 @@ if scorecard:
     st.divider()
 
     # ---------- Personalized Improvement Plan ----------
-
     st.markdown("## 🎯 Your Personalized Improvement Plan")
 
     next_steps = scorecard.get("next_steps", [])
@@ -977,7 +1019,6 @@ if scorecard:
     st.divider()
 
     # ---------- Final Summary ----------
-
     st.markdown("## 💡 Final Interview Insights")
 
     if valid_scores:
