@@ -1,6 +1,7 @@
 
 import json
 import os
+from pypdf import PdfReader
 
 import streamlit as st
 from openai import OpenAI
