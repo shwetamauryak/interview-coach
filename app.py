@@ -735,25 +735,61 @@ else:
             st.rerun()
 
 
-# ---------- Scorecard ----------
+
+# ---------- Advanced Performance Analytics ----------
+
 scorecard = st.session_state.scorecard
 
 if scorecard:
 
     st.divider()
 
-    st.markdown("## 📊 Interview Performance Report")
+    st.markdown("# 📊 Advanced Performance Analytics")
+    st.caption("Your personalized interview performance dashboard")
 
-    overall = scorecard.get("overall_score", 0)
+    # ---------- Overall Performance ----------
 
-    st.metric(
-        "Overall Interview Score",
-        f"{overall}/10"
-    )
+    overall = float(scorecard.get("overall_score", 0) or 0)
+    overall = max(0, min(overall, 10))
 
-    st.progress(
-        max(0.0, min(float(overall) / 10, 1.0))
-    )
+    if overall >= 8:
+        performance_level = "Excellent"
+        performance_message = "You are performing strongly. Keep refining your skills."
+    elif overall >= 6:
+        performance_level = "Good"
+        performance_message = "Good progress! A few improvements can make you interview-ready."
+    elif overall >= 4:
+        performance_level = "Average"
+        performance_message = "You have a foundation. Focus on structured and relevant answers."
+    else:
+        performance_level = "Needs Improvement"
+        performance_message = "Keep practicing. Focus on fundamentals and clear communication."
+
+    st.markdown("## 🏆 Overall Performance")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.metric("Overall Score", f"{overall:.1f}/10")
+
+    with col2:
+        st.metric("Performance Level", performance_level)
+
+    with col3:
+        st.metric(
+            "Questions Answered",
+            len(scorecard.get("per_question", []))
+        )
+
+    st.progress(overall / 10)
+
+    st.info(performance_message)
+
+    st.divider()
+
+    # ---------- Skill Analytics ----------
+
+    st.markdown("## 📈 Skill Performance Analysis")
 
     scores = scorecard.get("scores", {})
 
@@ -765,72 +801,158 @@ if scorecard:
         "confidence": "Confidence",
     }
 
-    st.markdown("### Performance Breakdown")
+    skill_data = {}
 
-    columns = st.columns(len(labels))
+    for key, label in labels.items():
+        try:
+            value = float(scores.get(key, 0) or 0)
+        except (ValueError, TypeError):
+            value = 0
 
-    for column, (key, label) in zip(columns, labels.items()):
+        skill_data[label] = max(0, min(value, 10))
 
-        value = scores.get(key, 0)
+    valid_scores = {
+        key: value for key, value in skill_data.items()
+        if value > 0
+    }
 
-        with column:
-            st.metric(
-                label,
-                f"{value}/10"
-            )
+    if valid_scores:
+
+        average_score = sum(valid_scores.values()) / len(valid_scores)
+
+        strongest_skill = max(valid_scores, key=valid_scores.get)
+        weakest_skill = min(valid_scores, key=valid_scores.get)
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.metric("Average Skill Score", f"{average_score:.1f}/10")
+
+        with col2:
+            st.metric("Strongest Skill", strongest_skill)
+
+        with col3:
+            st.metric("Needs Most Attention", weakest_skill)
+
+        st.markdown("### Skill Score Distribution")
+
+        chart_data = {
+            "Skill": list(valid_scores.keys()),
+            "Score": list(valid_scores.values())
+        }
+
+        st.bar_chart(
+            chart_data,
+            x="Skill",
+            y="Score",
+            y_label="Score out of 10",
+            height=300
+        )
+
+        st.markdown("### Individual Skill Breakdown")
+
+        for skill, value in skill_data.items():
+
+            if skill in valid_scores:
+                st.write(f"**{skill}** — {value:.1f}/10")
+                st.progress(value / 10)
+
+    else:
+        st.warning("Skill scores are not available in this report.")
 
     st.divider()
+
+    # ---------- Strengths and Improvements ----------
+
+    st.markdown("## 🔍 Performance Insights")
 
     left, right = st.columns(2)
 
     with left:
-
         st.markdown("### ✅ Your Strengths")
 
-        for strength in scorecard.get("strengths", []):
-            st.success(strength)
+        strengths = scorecard.get("strengths", [])
+
+        if strengths:
+            for strength in strengths:
+                st.success(strength)
+        else:
+            st.write("No strengths provided in this report.")
 
     with right:
-
         st.markdown("### 🔧 Areas to Improve")
 
-        for improvement in scorecard.get("improvements", []):
-            st.warning(improvement)
+        improvements = scorecard.get("improvements", [])
+
+        if improvements:
+            for improvement in improvements:
+                st.warning(improvement)
+        else:
+            st.write("No improvement areas provided.")
 
     st.divider()
 
-    st.markdown("### 📝 Question-by-Question Feedback")
+    # ---------- Question Analysis ----------
 
-    for index, question in enumerate(
-        scorecard.get("per_question", []),
-        1
-    ):
+    st.markdown("## 📝 Question-by-Question Analysis")
+
+    questions = scorecard.get("per_question", [])
+
+    for index, question in enumerate(questions, 1):
 
         with st.expander(
-            f"Question {index}: {question.get('question', '')}"
+            f"Question {index}: {question.get('question', 'Interview Question')}"
         ):
 
             st.markdown("**Your Answer Summary**")
-            st.write(question.get("answer_summary", ""))
+            st.write(question.get("answer_summary", "Not available"))
 
-            st.markdown("**Interviewer Feedback**")
-            st.write(question.get("feedback", ""))
+            st.markdown("**AI Interviewer Feedback**")
+            st.write(question.get("feedback", "Not available"))
 
-            st.markdown("**Example of a Stronger Answer**")
-            st.info(question.get("better_answer", ""))
+            st.markdown("**Suggested Stronger Answer**")
+            st.info(question.get("better_answer", "Not available"))
 
     st.divider()
 
-    st.markdown("### 🎯 Your Next Steps")
+    # ---------- Personalized Improvement Plan ----------
 
-    for step in scorecard.get("next_steps", []):
-        st.write(f"• {step}")
+    st.markdown("## 🎯 Your Personalized Improvement Plan")
+
+    next_steps = scorecard.get("next_steps", [])
+
+    if next_steps:
+        for index, step in enumerate(next_steps, 1):
+            st.write(f"**{index}.** {step}")
+    else:
+        st.write("Keep practicing and review your feedback regularly.")
+
+    st.divider()
+
+    # ---------- Final Summary ----------
+
+    st.markdown("## 💡 Final Interview Insights")
+
+    if valid_scores:
+
+        if overall >= 8:
+            st.success(
+                "Excellent performance! Focus on consistency and advanced interview questions."
+            )
+        elif overall >= 6:
+            st.info(
+                "You are making good progress. Practice your weaker skills to improve further."
+            )
+        else:
+            st.warning(
+                "Build your fundamentals and practice answering questions using clear examples."
+            )
 
     st.caption(
-        "This AI-generated report is intended for learning and practice. "
-        "It is not an official hiring decision."
+        "AI-generated insights are for interview preparation and learning. "
+        "They do not represent an official hiring decision."
     )
 
-    if st.button("Start Another Interview", use_container_width=True):
+    if st.button("🔄 Start Another Interview", use_container_width=True):
         reset()
         st.rerun()
